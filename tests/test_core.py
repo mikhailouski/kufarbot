@@ -126,12 +126,15 @@ class UrlcastTest(unittest.TestCase):
         with self.assertRaises(urlcast.KufarUrlDecodeError):
             urlcast.decode_search_url("https://evil.example.com/l/x")
 
+        # хосты kufar.by и re.kufar.by проходят валидацию (запрос замокирован)
         fake_resp = mock.Mock()
         fake_resp.status_code = 200
         fake_resp.text = "<html></html>"
         with mock.patch("requests.get", return_value=fake_resp):
             _, status = urlcast.decode_search_url("https://www.kufar.by/l/x")
-        self.assertEqual(status, 200)
+            self.assertEqual(status, 200)
+            _, status = urlcast.decode_search_url("https://re.kufar.by/l/grodno/snyat/kvartiru")
+            self.assertEqual(status, 200)
 
 
 class ClientTest(unittest.TestCase):

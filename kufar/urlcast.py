@@ -22,7 +22,7 @@ KUFAR_HEADERS = {
     "Accept-Language": "ru,en;q=0.8",
 }
 
-ALLOWED_HOSTS = {"www.kufar.by", "kufar.by", "auto.kufar.by"}
+ALLOWED_HOSTS = {"www.kufar.by", "kufar.by", "auto.kufar.by", "re.kufar.by"}
 
 
 class KufarUrlDecodeError(Exception):
@@ -109,12 +109,16 @@ def decode_search_url(url: str, timeout: int = 20) -> Tuple[dict[str, str], int]
 def search_params_to_string(params: dict[str, str]) -> str:
     """Собираем содержательную строку описания поисковой ссылки для UI."""
     parts = []
+    if params.get("typ") == "let":
+        parts.append("аренда")
     if params.get("cat"):
         parts.append(f"кат. {params['cat']}")
     if params.get("query"):
         parts.append(f"запрос «{params['query']}»")
     if params.get("prc"):
-        parts.append(f"цена {params['prc']}")
+        cur = {"USD": "$", "EUR": "€", "BYN": "р."}.get(params.get("cur", ""), "")
+        suffix = f" {cur}" if cur else ""
+        parts.append(f"цена {params['prc']}{suffix}")
     if params.get("rgn"):
         parts.append(f"регион {params['rgn']}")
     label = ", ".join(parts) if parts else "весь раздел"
