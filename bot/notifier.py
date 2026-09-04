@@ -12,15 +12,15 @@ from storage import WatchTarget
 
 def format_ad_text(ad: AdListing) -> str:
     """Краткое описание объявления для сообщения в Telegram."""
-    lines = [f"📷 <b>{html_mod.escape(ad.subject)}</b>"]
+    lines = [f"📩 <b>{html_mod.escape(ad.subject)}</b>"]
 
     if ad.price_byn is not None:
         price = f"{ad.price_byn:,.0f}".replace(",", " ") + " р."
         if ad.price_usd and ad.price_usd > 0:
             price += f"  (≈{ad.price_usd:,.0f} USD)".replace(",", " ")
-        lines.append(f"💰 {price}")
+        lines.append(f"💵 {price}")
     else:
-        lines.append("💰 Договорная")
+        lines.append("💵 Договорная")
 
     location = ad.location
     if location:

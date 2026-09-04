@@ -4,68 +4,66 @@ from __future__ import annotations
 import logging
 
 from aiogram import Dispatcher, Router
+from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
-from bot.notifier import format_error, format_watch_added, format_watch_list
-from kufar.client import KufarClient
-from kufar.urlcast import KufarUrlDecodeError, decode_search_url
-from storage import Storage, WatchTarget
+from bot import keyboards as kb
+from bot.buttons import AddStates, setup_button_handlers
+from bot.context import BotContext  # noqa: F401 (реэкспорт для main.py)
+from bot import menu_flow
+from bot.menu_flow import render_menu, reset_state_keep_menu
+from bot.notifier import format_error, format_watch_list
+from bot.watch_service import is_admin, watch_url
 
 log = logging.getLogger(__name__)
 
 
-class BotContext:
-    """Держим зависимости, доступные обработчикам."""
-
-    def __init__(
-        self,
-        admin_id: int,
-        storage: Storage,
-        client: KufarClient,
-    ):
-        self.admin_id = admin_id
-        self.storage = storage
-        self.client = client
-
-
 def setup_handlers(dp: Dispatcher, ctx: "BotContext") -> None:
-    """Регистрирует все команды бота."""
+    """Регистрирует команды и кнопки бота."""
     router = Router()
 
     @router.message(CommandStart())
-    async def on_start(message: Message) -> None:
-        if not _is_admin(message, ctx):
+    async def on_start(message: Message, state: FSMContext) -> None:
+        if not is_admin(message.from_user.id if message.from_user else None, ctx):
             await message.answer("⛔ У вас нет доступа к этому боту.")
             return
-        await message.answer(
-            "👋 <b>KufarBot</b>\n\n"
-            "Пришлите мне ссылку на раздел kufar.by с нужными фильтрами:\n"
-            "<code>/watch https://www.kufar.by/l/fotoapparaty/ft~fujifilm?sort=lst.d</code>\n\n"
-            "Другие команды:\n"
-            "/list — показать отслеживаемые разделы\n"
-            "/pause &lt;номер&gt; — поставить на паузу / возобновить\n"
-            "/un &lt;номер&gt; — удалить раздел",
-            parse_mode="HTML",
-        )
+        await reset_state_keep_menu(state)
+        # удалим прежнее меню-сообщение, если оно было
+        data = await state.get_data()
+        old_id = data.get(menu_flow.MENU_MESSAGE_KEY)
+        if old_id:
+            try:
+                await message.bot.delete_message(message.chat.id, int(old_id))
+            except Exception:
+                pass
+        sent = await message.answer(_start_text(), parse_mode="HTML", reply_markup=kb.main_menu())
+        # это сообщение станет "актуальным меню": следующее нажатие кнопки его заменит
+        await state.update_data(bot_menu_message_id=sent.message_id)
 
     @router.message(Command("watch"))
-    async def on_watch(message: Message) -> None:
-        if not _is_admin(message, ctx):
+    async def on_watch(message: Message, state: FSMContext) -> None:
+        if not is_admin(message.from_user.id if message.from_user else None, ctx):
             return
         url = _extract_url_arg(message)
         if not url:
-            await message.answer(
-                "Укажите ссылку на раздел kufar, например:\n"
-                "<code>/watch https://www.kufar.by/l/fotoapparaty?sort=lst.d</code>",
-                parse_mode="HTML",
+            await state.set_state(AddStates.waiting_url)
+            await render_menu(
+                message,
+                state,
+                "Пришлите ссылку на раздел kufar.by с нужными фильтрами "
+                "(или нажмите «◀️ Отмена»).",
+                kb.wait_url_menu(),
             )
             return
-        await _watch_url(url, message, ctx)
+        target = await watch_url(url, message, ctx)
+        if target is not None:
+            await reset_state_keep_menu(state)
+            await render_menu(message, state, "👍 Главное меню:", kb.main_menu())
 
     @router.message(Command("list"))
     async def on_list(message: Message) -> None:
-        if not _is_admin(message, ctx):
+        if not is_admin(message.from_user.id if message.from_user else None, ctx):
             return
         targets = ctx.storage.load_targets()
         await message.answer(
@@ -74,7 +72,7 @@ def setup_handlers(dp: Dispatcher, ctx: "BotContext") -> None:
 
     @router.message(Command("un"))
     async def on_un(message: Message) -> None:
-        if not _is_admin(message, ctx):
+        if not is_admin(message.from_user.id if message.from_user else None, ctx):
             return
         target_id = _parse_target_arg(message)
         targets = ctx.storage.load_targets()
@@ -87,7 +85,7 @@ def setup_handlers(dp: Dispatcher, ctx: "BotContext") -> None:
 
     @router.message(Command("pause"))
     async def on_pause(message: Message) -> None:
-        if not _is_admin(message, ctx):
+        if not is_admin(message.from_user.id if message.from_user else None, ctx):
             return
         target_id = _parse_target_arg(message)
         targets = ctx.storage.load_targets()
@@ -103,16 +101,26 @@ def setup_handlers(dp: Dispatcher, ctx: "BotContext") -> None:
         )
 
     dp.include_router(router)
+    # Кнопки подключаем после команд, чтобы команды имели приоритет.
+    setup_button_handlers(dp, ctx)
+
+
+def _start_text() -> str:
+    return (
+        "👋 <b>KufarBot</b>\n\n"
+        "Пришлите мне ссылку на раздел kufar.by (или re.kufar.by) с нужными фильтрами:\n"
+        "<code>/watch https://www.kufar.by/l/fotoapparaty/ft~fujifilm?sort=lst.d</code>\n\n"
+        "Или используйте кнопки под строкой ввода:\n"
+        f"• {kb.BTN_SECTIONS} — список разделов: выбрать → удалить/пауза\n"
+        f"• {kb.BTN_ADD} — добавить раздел по ссылке\n\n"
+        "Команды:\n"
+        "/list — список разделов\n"
+        "/pause &lt;номер&gt; — пауза / возобновить\n"
+        "/un &lt;номер&gt; — удалить раздел"
+    )
 
 
 # ---------- helpers ----------
-
-
-def _is_admin(message: Message, ctx: "BotContext") -> bool:
-    if message.from_user and message.from_user.id == ctx.admin_id:
-        return True
-    log.warning("Отказ в доступе пользователю id=%s", getattr(message.from_user, "id", None))
-    return False
 
 
 def _extract_url_arg(message: Message) -> str | None:
@@ -132,54 +140,3 @@ def _parse_target_arg(message: Message) -> int:
         return int(parts[1])
     except ValueError:
         return -1
-
-
-def _label_from_url(url: str, params: dict[str, str]) -> str:
-    from urllib.parse import urlsplit
-
-    path = urlsplit(url).path.rstrip("/")
-    last_segment = path.split("/")[-1] if path else ""
-    if last_segment and "~" not in last_segment:
-        return last_segment
-    return params.get("cat") or last_segment or url
-
-
-async def _watch_url(url: str, message: Message, ctx: "BotContext") -> None:
-    try:
-        params, _ = await _decode_in_thread(url)
-    except KufarUrlDecodeError as exc:
-        await message.answer(format_error(str(exc)))
-        return
-    except Exception as exc:
-        log.exception("Ошибка декодирования ссылки")
-        await message.answer(format_error(f"Не удалось получить данные по ссылке: {exc}"))
-        return
-
-    targets = ctx.storage.load_targets()
-    for target in targets.values():
-        if target.url.strip().lower() == url.strip().lower():
-            await message.answer(
-                format_error(f"Этот раздел уже отслеживается (номер #{target.target_id}).")
-            )
-            return
-
-    target = WatchTarget(
-        target_id=ctx.storage.next_target_id(targets),
-        url=url,
-        label=_label_from_url(url, params),
-        params=params,
-        enabled=True,
-        baseline_established=False,
-    )
-    targets[target.target_id] = target
-    ctx.storage.save_targets(targets)
-    await message.answer(format_watch_added(target), parse_mode="HTML")
-
-
-async def _decode_in_thread(url: str) -> tuple[dict[str, str], int]:
-    """Выполняем сетевой sync-декодер в потоке, чтобы не блокировать event loop."""
-    import asyncio
-    from functools import partial
-
-    fn = partial(decode_search_url, url)
-    return await asyncio.to_thread(fn)

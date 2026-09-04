@@ -21,6 +21,9 @@ from kufar import models
 from kufar import urlcast
 from storage import Storage, WatchTarget
 
+from bot import keyboards
+from bot import menu_flow
+
 SAMPLE_AD = {
     "list_id": 1082357726,
     "subject": "Фотоаппарат Fujifilm x-t50",
@@ -53,6 +56,56 @@ class ModelsTest(unittest.TestCase):
         self.assertEqual(ad.location, "Минск, Центральный")
         self.assertEqual(ad.link, "https://www.kufar.by/item/1082357726")
         self.assertIn("rms.kufar.by/v1/gallery", ad.image or "")
+
+
+class KeyboardsTest(unittest.TestCase):
+    def test_main_menu_buttons(self):
+        menu = keyboards.main_menu()
+        texts = [btn.text for row in menu.keyboard for btn in row]
+        self.assertIn(keyboards.BTN_SECTIONS, texts)
+        self.assertIn(keyboards.BTN_ADD, texts)
+        self.assertIn(keyboards.BTN_HELP, texts)
+
+    def test_targets_menu_lists_all(self):
+        t1 = WatchTarget(1, "https://x", "foto", enabled=True)
+        t2 = WatchTarget(2, "https://y", "rent", enabled=False)
+        menu = keyboards.targets_menu([t1, t2])
+        texts = [btn.text for row in menu.keyboard for btn in row]
+        self.assertEqual(texts[0], "#1 foto")
+        self.assertEqual(texts[1], "#2 ⏸ rent")
+        self.assertIn(keyboards.BTN_CANCEL, texts)
+
+    def test_target_actions_menu_toggle(self):
+        active = WatchTarget(7, "https://x", "foto", enabled=True)
+        paused = WatchTarget(7, "https://x", "foto", enabled=False)
+        texts_active = [b.text for r in keyboards.target_actions_menu(active).keyboard for b in r]
+        texts_paused = [b.text for r in keyboards.target_actions_menu(paused).keyboard for b in r]
+        self.assertIn(f"{keyboards.BTN_DELETE_PREFIX}7", texts_active)
+        self.assertIn(f"{keyboards.BTN_PAUSE_PREFIX}7", texts_active)
+        self.assertIn(f"{keyboards.BTN_RESUME_PREFIX}7", texts_paused)
+        self.assertIn(keyboards.BTN_CANCEL, texts_active)
+
+    def test_parse_target_from_button(self):
+        self.assertEqual(keyboards.parse_target_from_button("#12 foto"), 12)
+        self.assertEqual(keyboards.parse_target_from_button("🗑 Удалить #12"), 12)
+        self.assertEqual(keyboards.parse_target_from_button("⏸ Пауза #3"), 3)
+        self.assertEqual(keyboards.parse_target_from_button("▶️ Возобновить #44"), 44)
+        self.assertIsNone(keyboards.parse_target_from_button("без id"))
+        self.assertIsNone(keyboards.parse_target_from_button("🗑 Удалить #abc"))
+
+
+class MenuFlowTest(unittest.TestCase):
+    def test_is_button_press(self):
+        self.assertTrue(menu_flow.is_button_press(keyboards.BTN_SECTIONS))
+        self.assertTrue(menu_flow.is_button_press(keyboards.BTN_ADD))
+        self.assertTrue(menu_flow.is_button_press(keyboards.BTN_CANCEL))
+        self.assertTrue(menu_flow.is_button_press("#12 foto"))
+        self.assertTrue(menu_flow.is_button_press(f"{keyboards.BTN_DELETE_PREFIX}12"))
+        self.assertTrue(menu_flow.is_button_press(f"{keyboards.BTN_RESUME_PREFIX}3"))
+        self.assertFalse(menu_flow.is_button_press("https://www.kufar.by/l/foto"))
+        self.assertFalse(menu_flow.is_button_press("/start"))
+        self.assertFalse(menu_flow.is_button_press(None))
+        self.assertFalse(menu_flow.is_button_press("привет"))
 
 
 class StorageTest(unittest.TestCase):

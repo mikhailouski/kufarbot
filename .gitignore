@@ -6,3 +6,4 @@ venv/
 data/
 _explore.py
 _test_*.py
+*.log
