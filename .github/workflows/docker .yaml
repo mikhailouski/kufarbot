@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build and Deploy
 
 on:
   push:
@@ -36,6 +36,10 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
@@ -44,7 +48,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
 
   deploy:
@@ -58,8 +61,13 @@ jobs:
         run: |
           cd /opt/kufarbot
 
+          export IMAGE_TAG="sha-${GITHUB_SHA}"
+
+          echo "Deploying image:"
+          echo "ghcr.io/mikhailouski/kufarbot:${IMAGE_TAG}"
+
           docker compose pull
-          docker compose up -d
+          docker compose up -d --force-recreate
 
       - name: Show container status
         run: |
@@ -70,22 +78,3 @@ jobs:
         run: |
           cd /opt/kufarbot
           docker compose logs --tail=30
-
-  test-runner:
-    name: Test self-hosted runner
-    runs-on: [self-hosted, linux, x64, kufarbot]
-
-    steps:
-      - name: System information
-        run: |
-          echo "Hostname:"
-          hostname
-
-          echo "OS:"
-          cat /etc/os-release
-
-          echo "Docker:"
-          docker version --format '{{.Server.Version}}'
-
-          echo "Compose:"
-          docker compose version
