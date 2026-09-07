@@ -38,7 +38,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=sha,prefix=sha-
+            type=sha,format=long,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
@@ -66,13 +66,21 @@ jobs:
           echo "Deploying image:"
           echo "ghcr.io/mikhailouski/kufarbot:${IMAGE_TAG}"
 
-          docker compose pull
+          docker pull "ghcr.io/mikhailouski/kufarbot:${IMAGE_TAG}"
           docker compose up -d --force-recreate
 
       - name: Show container status
         run: |
           cd /opt/kufarbot
           docker compose ps
+
+      - name: Show deployed image
+        run: |
+          docker inspect kufarbot \
+            --format 'Container image: {{.Config.Image}}'
+
+          docker inspect kufarbot \
+            --format 'Image ID: {{.Image}}'
 
       - name: Show logs
         run: |
