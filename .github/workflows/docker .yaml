@@ -46,3 +46,46 @@ jobs:
             ${{ steps.meta.outputs.tags }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to Ubuntu VM
+    needs: build-and-push
+
+    runs-on: [self-hosted, linux, x64, kufarbot]
+
+    steps:
+      - name: Deploy application
+        run: |
+          cd /opt/kufarbot
+
+          docker compose pull
+          docker compose up -d
+
+      - name: Show container status
+        run: |
+          cd /opt/kufarbot
+          docker compose ps
+
+      - name: Show logs
+        run: |
+          cd /opt/kufarbot
+          docker compose logs --tail=30
+
+  test-runner:
+    name: Test self-hosted runner
+    runs-on: [self-hosted, linux, x64, kufarbot]
+
+    steps:
+      - name: System information
+        run: |
+          echo "Hostname:"
+          hostname
+
+          echo "OS:"
+          cat /etc/os-release
+
+          echo "Docker:"
+          docker version --format '{{.Server.Version}}'
+
+          echo "Compose:"
+          docker compose version
