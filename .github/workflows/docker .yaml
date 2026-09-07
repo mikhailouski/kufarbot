@@ -58,23 +58,115 @@ jobs:
 
     steps:
       - name: Deploy application
+        shell: bash
         run: |
+          set -e
+
           cd /opt/kufarbot
 
-          export IMAGE_TAG="sha-${GITHUB_SHA}"
+          NEW_TAG="sha-${GITHUB_SHA}"
 
-          echo "Deploying image:"
-          echo "ghcr.io/mikhailouski/kufarbot:${IMAGE_TAG}"
+          echo "New image:"
+          echo "ghcr.io/mikhailouski/kufarbot:${NEW_TAG}"
 
-          docker pull "ghcr.io/mikhailouski/kufarbot:${IMAGE_TAG}"
+          # Save currently running version for rollback
+          PREVIOUS_IMAGE=$(docker inspect kufarbot \
+            --format '{{.Config.Image}}' 2>/dev/null || true)
+
+          if [ -n "$PREVIOUS_IMAGE" ]; then
+            PREVIOUS_TAG="${PREVIOUS_IMAGE##*:}"
+            echo "Previous image: ${PREVIOUS_IMAGE}"
+            echo "Previous tag: ${PREVIOUS_TAG}"
+          else
+            PREVIOUS_TAG=""
+            echo "No previous container found."
+          fi
+
+          export IMAGE_TAG="${NEW_TAG}"
+
+          echo "Pulling new image..."
+          docker pull "ghcr.io/mikhailouski/kufarbot:${NEW_TAG}"
+
+          echo "Starting new version..."
           docker compose up -d --force-recreate
 
+          echo "Waiting for healthcheck..."
+
+          HEALTHY=false
+
+          for i in $(seq 1 12); do
+            STATUS=$(docker inspect kufarbot \
+              --format '{{.State.Health.Status}}')
+
+            echo "Health status: ${STATUS}"
+
+            if [ "$STATUS" = "healthy" ]; then
+              HEALTHY=true
+              break
+            fi
+
+            if [ "$STATUS" = "unhealthy" ]; then
+              break
+            fi
+
+            sleep 5
+          done
+
+          if [ "$HEALTHY" = true ]; then
+            echo "Deployment successful."
+            exit 0
+          fi
+
+          echo "Deployment failed."
+          echo "Container logs:"
+          docker compose logs --tail=50
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "No previous version available for rollback."
+            exit 1
+          fi
+
+          echo "Starting rollback to: ${PREVIOUS_TAG}"
+
+          export IMAGE_TAG="${PREVIOUS_TAG}"
+
+          docker pull "ghcr.io/mikhailouski/kufarbot:${PREVIOUS_TAG}"
+          docker compose up -d --force-recreate
+
+          echo "Waiting for rollback healthcheck..."
+
+          ROLLBACK_HEALTHY=false
+
+          for i in $(seq 1 12); do
+            STATUS=$(docker inspect kufarbot \
+              --format '{{.State.Health.Status}}')
+
+            echo "Rollback health status: ${STATUS}"
+
+            if [ "$STATUS" = "healthy" ]; then
+              ROLLBACK_HEALTHY=true
+              break
+            fi
+
+            sleep 5
+          done
+
+          if [ "$ROLLBACK_HEALTHY" = true ]; then
+            echo "Rollback successful."
+          else
+            echo "Rollback failed!"
+          fi
+
+          exit 1
+
       - name: Show container status
+        if: always()
         run: |
           cd /opt/kufarbot
           docker compose ps
 
       - name: Show deployed image
+        if: always()
         run: |
           docker inspect kufarbot \
             --format 'Container image: {{.Config.Image}}'
@@ -82,7 +174,11 @@ jobs:
           docker inspect kufarbot \
             --format 'Image ID: {{.Image}}'
 
+          docker inspect kufarbot \
+            --format 'Health: {{.State.Health.Status}}'
+
       - name: Show logs
+        if: always()
         run: |
           cd /opt/kufarbot
-          docker compose logs --tail=30
+          docker compose logs --tail=50
