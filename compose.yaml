@@ -1,0 +1,12 @@
+services:
+  kufarbot:
+    build: .
+    container_name: kufarbot
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./data:/app/data
