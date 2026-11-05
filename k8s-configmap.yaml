@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kufarbot-config
+  namespace: lab
+data:
+  CHECK_INTERVAL: "300"
+  CHECK_SIZE: "50"
+  MAX_SEND_PER_CHECK: "15"

@@ -1,0 +1,156 @@
+
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: kufarbot-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build and Push
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to Kubernetes
+    needs: build-and-push
+
+    runs-on: [self-hosted, linux, x64, kufarbot]
+
+    env:
+      KUBECONFIG: /etc/kufarbot-deployer/config
+
+    steps:
+      - name: Deploy application
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          NAMESPACE="lab"
+          DEPLOYMENT="kufarbot"
+          CONTAINER="kufarbot"
+          IMAGE="ghcr.io/mikhailouski/kufarbot:sha-${GITHUB_SHA}"
+
+          echo "================================"
+          echo "Deploying KufarBot"
+          echo "Image: ${IMAGE}"
+          echo "================================"
+
+          echo "Current deployment:"
+          kubectl -n "$NAMESPACE" get deployment "$DEPLOYMENT" -o wide
+
+          echo "Updating image..."
+
+          kubectl -n "$NAMESPACE" set image \
+            "deployment/${DEPLOYMENT}" \
+            "${CONTAINER}=${IMAGE}"
+
+          echo "Waiting for rollout..."
+
+          if kubectl -n "$NAMESPACE" rollout status \
+            "deployment/${DEPLOYMENT}" \
+            --timeout=180s; then
+
+            echo "Deployment successful."
+            exit 0
+          fi
+
+          echo "Deployment failed!"
+          echo "Current pods:"
+          kubectl -n "$NAMESPACE" get pods -l app=kufarbot -o wide || true
+
+          echo "Recent application logs:"
+          kubectl -n "$NAMESPACE" logs \
+            -l app=kufarbot \
+            --all-containers=true \
+            --tail=50 \
+            --prefix=true || true
+
+          echo "Starting rollback..."
+
+          if kubectl -n "$NAMESPACE" rollout undo \
+            "deployment/${DEPLOYMENT}"; then
+
+            echo "Waiting for rollback..."
+
+            if kubectl -n "$NAMESPACE" rollout status \
+              "deployment/${DEPLOYMENT}" \
+              --timeout=180s; then
+
+              echo "Rollback successful."
+            else
+              echo "Rollback failed: rollout did not complete."
+            fi
+          else
+            echo "Rollback command failed."
+          fi
+
+          exit 1
+
+      - name: Show deployment status
+        if: always()
+        shell: bash
+        run: |
+          kubectl -n lab get deployment kufarbot -o wide || true
+          kubectl -n lab get pods -l app=kufarbot -o wide || true
+
+      - name: Show deployed image
+        if: always()
+        shell: bash
+        run: |
+          kubectl -n lab get deployment kufarbot \
+            -o jsonpath='{.spec.template.spec.containers[?(@.name=="kufarbot")].image}{"\n"}' || true
+
+      - name: Show application logs
+        if: always()
+        shell: bash
+        run: |
+          kubectl -n lab logs \
+            -l app=kufarbot \
+            --all-containers=true \
+            --tail=50 \
+            --prefix=true || true
