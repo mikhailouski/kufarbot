@@ -1,3 +1,5 @@
+# Только для локального запуска. Production работает в Kubernetes
+# (см. .github/workflows/pipeline.yaml и k8s-*.yaml).
 services:
   kufarbot:
     build: .

@@ -17,14 +17,35 @@ spec:
     spec:
       containers:
         - name: kufarbot
+          # CI заменяет этот тег на :sha-<commit> через kubectl set image.
+          # Повторный kubectl apply сбросит образ обратно на :latest.
           image: ghcr.io/mikhailouski/kufarbot:latest
           imagePullPolicy: IfNotPresent
           command: ["python", "main.py"]
+          ports:
+            - name: health
+              containerPort: 8080
           envFrom:
             - secretRef:
                 name: kufarbot-secret
             - configMapRef:
                 name: kufarbot-config
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           volumeMounts:
             - name: bot-data
               mountPath: /app/data

@@ -19,10 +19,6 @@ class Config:
     check_size: int  # сколько объявлений брать за опрос
     max_send_per_check: int
 
-    @property
-    def data_dir(self) -> Path:
-        return DATA_DIR
-
 
 def load_config() -> Config:
     load_dotenv(ROOT_DIR / ".env")

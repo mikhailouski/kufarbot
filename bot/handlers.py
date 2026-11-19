@@ -10,7 +10,7 @@ from aiogram.types import Message
 
 from bot import keyboards as kb
 from bot.buttons import AddStates, setup_button_handlers
-from bot.context import BotContext  # noqa: F401 (реэкспорт для main.py)
+from bot.context import BotContext
 from bot import menu_flow
 from bot.menu_flow import render_menu, reset_state_keep_menu
 from bot.notifier import format_error, format_watch_list

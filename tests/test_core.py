@@ -256,7 +256,7 @@ class MonitorTest(unittest.TestCase):
     def test_baseline_then_new_detection(self):
         import asyncio
 
-        from bot.handlers import BotContext
+        from bot.context import BotContext
         from main import poll_once
 
         ad1 = models.ad_from_json(SAMPLE_AD)

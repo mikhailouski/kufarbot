@@ -96,9 +96,5 @@ class Storage:
             return 1
         return max(targets.keys()) + 1
 
-    # ---------- базовая отладка ----------
-    def touch(self) -> None:
-        self._write(self._read())
-
 
 __all__ = ["Storage", "WatchTarget"]

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Tuple
+from typing import Optional, Tuple
 from urllib.parse import urlsplit
 
 import requests

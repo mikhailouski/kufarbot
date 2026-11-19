@@ -61,13 +61,6 @@ class KufarClient:
             f"API поиска не ответил (HTTP {getattr(last_response, 'status_code', '?')})"
         )
 
-    def fetch_ads_raw(self, params: dict[str, str], size: int = 30) -> list[dict]:
-        """Сырые dict-объявления (для debug)."""
-        query_params = {**params, "size": str(size)}
-        resp = self.session.get(SEARCH_URL, params=query_params, timeout=self.timeout)
-        resp.raise_for_status()
-        return resp.json().get("ads", [])
-
     def close(self):
         self.session.close()
 
